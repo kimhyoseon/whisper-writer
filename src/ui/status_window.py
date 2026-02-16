@@ -1,88 +1,101 @@
 import sys
 import os
-from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer
-from PyQt5.QtGui import QFont, QPixmap, QIcon
-from PyQt5.QtWidgets import QApplication, QLabel, QHBoxLayout
+from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer, QPropertyAnimation, QEasingCurve
+from PyQt5.QtGui import QFont, QPixmap, QIcon, QColor, QPainter, QPainterPath, QBrush, QPen
+from PyQt5.QtWidgets import QApplication, QLabel, QHBoxLayout, QGraphicsOpacityEffect, QWidget
+from PyQt5.QtCore import QRectF
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from ui.base_window import BaseWindow
+from ui.base_window import COLORS
 
-class StatusWindow(BaseWindow):
+
+class StatusWindow(QWidget):
     statusSignal = pyqtSignal(str)
     closeSignal = pyqtSignal()
 
     def __init__(self):
-        """
-        Initialize the status window.
-        """
-        super().__init__('WhisperWriter Status', 320, 120)
+        super().__init__()
         self.initStatusUI()
         self.statusSignal.connect(self.updateStatus)
+        self.is_dragging = False
 
     def initStatusUI(self):
-        """
-        Initialize the status user interface.
-        """
+        self.setWindowTitle('WhisperWriter Status')
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-        
-        status_layout = QHBoxLayout()
-        status_layout.setContentsMargins(0, 0, 0, 0)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setFixedSize(220, 56)
 
-        self.icon_label = QLabel()
-        self.icon_label.setFixedSize(32, 32)
-        microphone_path = os.path.join('assets', 'microphone.png')
-        pencil_path = os.path.join('assets', 'pencil.png')
-        self.microphone_pixmap = QPixmap(microphone_path).scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.pencil_pixmap = QPixmap(pencil_path).scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.icon_label.setPixmap(self.microphone_pixmap)
-        self.icon_label.setAlignment(Qt.AlignCenter)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(16, 8, 16, 8)
+        layout.setSpacing(10)
 
-        self.status_label = QLabel('Recording...')
-        self.status_label.setFont(QFont('Segoe UI', 12))
+        # Status dot (colored circle indicator)
+        self.dot_label = QLabel()
+        self.dot_label.setFixedSize(12, 12)
+        self.dot_label.setStyleSheet("""
+            background-color: #FF5A5A;
+            border-radius: 6px;
+        """)
 
-        status_layout.addStretch(1)
-        status_layout.addWidget(self.icon_label)
-        status_layout.addWidget(self.status_label)
-        status_layout.addStretch(1)
+        self.status_label = QLabel('녹음 중...')
+        self.status_label.setFont(QFont('Segoe UI', 11, QFont.DemiBold))
+        self.status_label.setStyleSheet("color: #E6E6EB; background: transparent;")
 
-        self.main_layout.addLayout(status_layout)
-        
+        layout.addStretch(1)
+        layout.addWidget(self.dot_label)
+        layout.addWidget(self.status_label)
+        layout.addStretch(1)
+
+    def paintEvent(self, event):
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(self.rect()), 28, 28)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setBrush(QBrush(QColor(30, 30, 36, 240)))
+        painter.setPen(QPen(QColor(55, 55, 65), 1))
+        painter.drawPath(path)
+
     def show(self):
-        """
-        Position the window in the bottom center of the screen and show it.
-        """
         screen = QApplication.primaryScreen()
         screen_geometry = screen.geometry()
-        screen_width = screen_geometry.width()
-        screen_height = screen_geometry.height()
-        window_width = self.width()
-        window_height = self.height()
-
-        x = (screen_width - window_width) // 2
-        y = screen_height - window_height - 120
-
+        x = (screen_geometry.width() - self.width()) // 2
+        y = screen_geometry.height() - self.height() - 80
         self.move(x, y)
         super().show()
-        
+
     def closeEvent(self, event):
-        """
-        Emit the close signal when the window is closed.
-        """
         self.closeSignal.emit()
         super().closeEvent(event)
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.is_dragging = True
+            self.start_position = event.globalPos() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if Qt.LeftButton and self.is_dragging:
+            self.move(event.globalPos() - self.start_position)
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self.is_dragging = False
+
     @pyqtSlot(str)
     def updateStatus(self, status):
-        """
-        Update the status window based on the given status.
-        """
         if status == 'recording':
-            self.icon_label.setPixmap(self.microphone_pixmap)
-            self.status_label.setText('Recording...')
+            self.dot_label.setStyleSheet("""
+                background-color: #FF5A5A;
+                border-radius: 6px;
+            """)
+            self.status_label.setText('녹음 중...')
             self.show()
         elif status == 'transcribing':
-            self.icon_label.setPixmap(self.pencil_pixmap)
-            self.status_label.setText('Transcribing...')
+            self.dot_label.setStyleSheet("""
+                background-color: #6387FF;
+                border-radius: 6px;
+            """)
+            self.status_label.setText('변환 중...')
 
         if status in ('idle', 'error', 'cancel'):
             self.close()
@@ -90,12 +103,11 @@ class StatusWindow(BaseWindow):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    
+
     status_window = StatusWindow()
     status_window.show()
 
-    # Simulate status updates
     QTimer.singleShot(3000, lambda: status_window.statusSignal.emit('transcribing'))
     QTimer.singleShot(6000, lambda: status_window.statusSignal.emit('idle'))
-    
+
     sys.exit(app.exec_())

@@ -1,5 +1,6 @@
 import yaml
 import os
+import stat
 
 class ConfigManager:
     _instance = None
@@ -105,7 +106,7 @@ class ConfigManager:
 
         if config_path and os.path.isfile(config_path):
             try:
-                with open(config_path, 'r') as file:
+                with open(config_path, 'r', encoding='utf-8') as file:
                     user_config = yaml.safe_load(file)
                     deep_update(self.config, user_config)
             except yaml.YAMLError:
@@ -116,8 +117,13 @@ class ConfigManager:
         """Save the current configuration to a YAML file."""
         if cls._instance is None:
             raise RuntimeError("ConfigManager not initialized")
-        with open(config_path, 'w') as file:
+        with open(config_path, 'w', encoding='utf-8') as file:
             yaml.dump(cls._instance.config, file, default_flow_style=False)
+        # Set restrictive file permissions (owner read/write only)
+        try:
+            os.chmod(config_path, stat.S_IRUSR | stat.S_IWUSR)
+        except OSError:
+            pass  # Windows ACLs may not fully support this
 
     @classmethod
     def reload_config(cls):
@@ -139,4 +145,7 @@ class ConfigManager:
     def console_print(cls, message):
         """Print a message to the console if enabled in the configuration."""
         if cls._instance and cls._instance.config['misc']['print_to_terminal']:
-            print(message)
+            try:
+                print(message)
+            except UnicodeEncodeError:
+                print(message.encode('utf-8', errors='replace').decode('utf-8'))

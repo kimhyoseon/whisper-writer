@@ -1,6 +1,25 @@
 import os
 import sys
 import time
+
+
+def _pre_load_model():
+    """Pre-load CTranslate2 model before PyQt5 import to avoid segfault."""
+    from utils import ConfigManager
+    from transcription import create_local_model
+    ConfigManager.initialize()
+    model_options = ConfigManager.get_config_section('model_options')
+    model = None
+    if ConfigManager.config_file_exists() and not model_options.get('use_api'):
+        model = create_local_model()
+    ConfigManager._instance = None
+    return model
+
+
+# CTranslate2 and PyQt5 crash when model is loaded after QApplication init.
+# Load the model first, before any Qt imports.
+_pre_loaded_model = _pre_load_model()
+
 from audioplayer import AudioPlayer
 from pynput.keyboard import Controller
 from PyQt5.QtCore import QObject, QProcess
@@ -9,7 +28,6 @@ from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QAction, QMess
 
 from key_listener import KeyListener
 from result_thread import ResultThread
-from ui.main_window import MainWindow
 from ui.settings_window import SettingsWindow
 from ui.status_window import StatusWindow
 from transcription import create_local_model
@@ -25,6 +43,7 @@ class WhisperWriterApp(QObject):
         super().__init__()
         self.app = QApplication(sys.argv)
         self.app.setWindowIcon(QIcon(os.path.join('assets', 'ww-logo.png')))
+        self.app.setQuitOnLastWindowClosed(False)
 
         ConfigManager.initialize()
 
@@ -32,11 +51,7 @@ class WhisperWriterApp(QObject):
         self.settings_window.settings_closed.connect(self.on_settings_closed)
         self.settings_window.settings_saved.connect(self.restart_app)
 
-        if ConfigManager.config_file_exists():
-            self.initialize_components()
-        else:
-            print('No valid configuration file found. Opening settings window...')
-            self.settings_window.show()
+        self.initialize_components()
 
     def initialize_components(self):
         """
@@ -49,21 +64,18 @@ class WhisperWriterApp(QObject):
         self.key_listener.add_callback("on_deactivate", self.on_deactivation)
 
         model_options = ConfigManager.get_config_section('model_options')
-        model_path = model_options.get('local', {}).get('model_path')
-        self.local_model = create_local_model() if not model_options.get('use_api') else None
+        if not model_options.get('use_api'):
+            self.local_model = _pre_loaded_model or create_local_model()
+        else:
+            self.local_model = None
 
         self.result_thread = None
-
-        self.main_window = MainWindow()
-        self.main_window.openSettings.connect(self.settings_window.show)
-        self.main_window.startListening.connect(self.key_listener.start)
-        self.main_window.closeApp.connect(self.exit_app)
 
         if not ConfigManager.get_config_value('misc', 'hide_status_window'):
             self.status_window = StatusWindow()
 
         self.create_tray_icon()
-        self.main_window.show()
+        self.key_listener.start()
 
     def create_tray_icon(self):
         """
@@ -73,15 +85,11 @@ class WhisperWriterApp(QObject):
 
         tray_menu = QMenu()
 
-        show_action = QAction('WhisperWriter Main Menu', self.app)
-        show_action.triggered.connect(self.main_window.show)
-        tray_menu.addAction(show_action)
-
-        settings_action = QAction('Open Settings', self.app)
+        settings_action = QAction('설정', self.app)
         settings_action.triggered.connect(self.settings_window.show)
         tray_menu.addAction(settings_action)
 
-        exit_action = QAction('Exit', self.app)
+        exit_action = QAction('종료', self.app)
         exit_action.triggered.connect(self.exit_app)
         tray_menu.addAction(exit_action)
 
@@ -105,19 +113,11 @@ class WhisperWriterApp(QObject):
         """Restart the application to apply the new settings."""
         self.cleanup()
         QApplication.quit()
-        QProcess.startDetached(sys.executable, sys.argv)
+        QProcess.startDetached(sys.executable, [sys.argv[0]])
 
     def on_settings_closed(self):
-        """
-        If settings is closed without saving on first run, initialize the components with default values.
-        """
-        if not os.path.exists(os.path.join('src', 'config.yaml')):
-            QMessageBox.information(
-                self.settings_window,
-                'Using Default Values',
-                'Settings closed without saving. Default values are being used.'
-            )
-            self.initialize_components()
+        """Called when settings window is closed without saving."""
+        pass
 
     def on_activation(self):
         """

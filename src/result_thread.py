@@ -1,5 +1,5 @@
 import time
-import traceback
+import logging
 import numpy as np
 import sounddevice as sd
 import tempfile
@@ -11,6 +11,8 @@ from threading import Event
 
 from transcription import transcribe
 from utils import ConfigManager
+
+logger = logging.getLogger(__name__)
 
 
 class ResultThread(QThread):
@@ -98,7 +100,8 @@ class ResultThread(QThread):
             self.resultSignal.emit(result)
 
         except Exception as e:
-            traceback.print_exc()
+            logger.error("Transcription error: %s", type(e).__name__, exc_info=True)
+            ConfigManager.console_print(f'오류가 발생했습니다: {type(e).__name__}')
             self.statusSignal.emit('error')
             self.resultSignal.emit('')
         finally:
@@ -128,7 +131,7 @@ class ResultThread(QThread):
             speech_detected = False
             silent_frame_count = 0
 
-        audio_buffer = deque(maxlen=frame_size)
+        audio_buffer = deque()
         recording = []
 
         data_ready = Event()

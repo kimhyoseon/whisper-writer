@@ -130,3 +130,19 @@ dmypy.json
 
 # Configuration files
 config.yaml
+
+# Model files (too large for git)
+models/
+
+# Claude Code settings
+.claude/
+
+# Error screenshots / temp files
+error/
+
+# Analysis reports (local only)
+ANALYSIS_SUMMARY.md
+SECURITY_AUDIT_REPORT.md
+
+# Duplicate requirements
+requirements_utf8.txt

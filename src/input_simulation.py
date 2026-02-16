@@ -1,10 +1,21 @@
 import subprocess
 import os
+import re
 import signal
 import time
 from pynput.keyboard import Controller as PynputController
 
 from utils import ConfigManager
+
+
+def sanitize_text_for_subprocess(text):
+    """Remove control characters and dotool/ydotool command sequences from text."""
+    # Remove all control characters except space
+    text = ''.join(c for c in text if c == ' ' or (c.isprintable() and c not in '\n\r'))
+    # Remove potential dotool command injections (lines starting with dotool commands)
+    text = re.sub(r'\b(key|keyup|keydown|type|typedelay|keydelay|buttonup|buttondown|scroll|mouseto|mousemove)\b', '', text)
+    return text
+
 
 def run_command_or_exit_on_failure(command):
     """
@@ -87,6 +98,7 @@ class InputSimulator:
             text (str): The text to type.
             interval (float): The interval between keystrokes in seconds.
         """
+        safe_text = sanitize_text_for_subprocess(text)
         cmd = "ydotool"
         run_command_or_exit_on_failure([
             cmd,
@@ -94,7 +106,7 @@ class InputSimulator:
             "--key-delay",
             str(interval * 1000),
             "--",
-            text,
+            safe_text,
         ])
 
     def _typewrite_dotool(self, text, interval):
@@ -105,9 +117,10 @@ class InputSimulator:
             text (str): The text to type.
             interval (float): The interval between keystrokes in seconds.
         """
+        safe_text = sanitize_text_for_subprocess(text)
         assert self.dotool_process and self.dotool_process.stdin
         self.dotool_process.stdin.write(f"typedelay {interval * 1000}\n")
-        self.dotool_process.stdin.write(f"type {text}\n")
+        self.dotool_process.stdin.write(f"type {safe_text}\n")
         self.dotool_process.stdin.flush()
 
     def cleanup(self):
